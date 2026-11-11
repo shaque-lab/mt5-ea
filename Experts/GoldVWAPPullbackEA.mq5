@@ -27,6 +27,16 @@ input int InpSessionStartMinuteUTC = 30;
 input int InpSessionEndHourUTC = 20;
 input int InpSessionEndMinuteUTC = 0;
 input bool InpUseTickVolume = true;           // Spot gold typically has no exchange real volume
+input group "Entry day / hour filters (broker server time)"
+input bool InpEnableWeekdayFilter = true;    // Tuesday, Wednesday, Friday
+input bool InpTradeMonday = false;
+input bool InpTradeTuesday = true;
+input bool InpTradeWednesday = true;
+input bool InpTradeThursday = false;
+input bool InpTradeFriday = true;
+input bool InpEnableHourFilter = true;       // 15:00 through 16:59 server time
+input int InpEntryStartHour = 15;            // Inclusive
+input int InpEntryEndHour = 16;              // Inclusive
 input group "Execution and risk"
 input double InpRiskPct = 0.1;
 input int InpMaxSpreadPoints = 50;
@@ -175,9 +185,33 @@ bool LotsForRisk(const bool buy,const double price,const double sl,double &lots)
    lots=NormalizeDouble(MathMin(maxv,MathFloor(budget/(-pnl)/step)*step),8);
    return lots>=minv;
 }
+bool EntryTimeAllowed(datetime entryServerTime)
+{
+   MqlDateTime dt;
+   TimeToStruct(entryServerTime,dt);
+   if(InpEnableWeekdayFilter)
+   {
+      bool allowed=false;
+      switch(dt.day_of_week)
+      {
+         case 1: allowed=InpTradeMonday; break;
+         case 2: allowed=InpTradeTuesday; break;
+         case 3: allowed=InpTradeWednesday; break;
+         case 4: allowed=InpTradeThursday; break;
+         case 5: allowed=InpTradeFriday; break;
+         default: return false;
+      }
+      if(!allowed) return false;
+   }
+   if(InpEnableHourFilter && (dt.hour<InpEntryStartHour || dt.hour>InpEntryEndHour))
+      return false;
+   return true;
+}
 void Enter(const MqlRates &sig,const MqlRates &prev)
 {
    if(!enabled || locked || PositionExists()) return;
+   // Entry is executed at the opening of the next M15 bar, not at signal close.
+   if(!EntryTimeAllowed(TimeCurrent())) return;
    datetime start,end;
    if(!SessionBounds(sig.time,start,end)) return;
    if(InpEnableManualNewsBlackout &&
@@ -278,7 +312,9 @@ int OnInit()
       InpServerUTCOffsetHours>14 || InpSessionStartHourUTC<0 || InpSessionStartHourUTC>23 ||
       InpSessionEndHourUTC<0 || InpSessionEndHourUTC>23 || InpSessionStartMinuteUTC<0 ||
       InpSessionStartMinuteUTC>59 || InpSessionEndMinuteUTC<0 || InpSessionEndMinuteUTC>59 ||
-      InpPartialCloseFraction<=0 || InpPartialCloseFraction>=1 || InpMagic<=0) return INIT_PARAMETERS_INCORRECT;
+      InpPartialCloseFraction<=0 || InpPartialCloseFraction>=1 || InpMagic<=0 ||
+      InpEntryStartHour<0 || InpEntryStartHour>23 || InpEntryEndHour<0 ||
+      InpEntryEndHour>23 || InpEntryStartHour>InpEntryEndHour) return INIT_PARAMETERS_INCORRECT;
    tradeSymbol=InpSymbol==""?_Symbol:InpSymbol;
    if(!SymbolSelect(tradeSymbol,true)) return INIT_FAILED;
    h200=iMA(tradeSymbol,PERIOD_M15,InpEMARegime,0,MODE_EMA,PRICE_CLOSE);
