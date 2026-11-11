@@ -7,7 +7,7 @@
 #include <Trade/Trade.mqh>
 enum ENUM_VWAP_SIDE { VWAP_BOTH=0, VWAP_BUY_ONLY=1, VWAP_SELL_ONLY=2 };
 input group "Market / strategy"
-input string InpSymbol = "";                  // Blank = chart symbol; attach to XAUUSD M15
+input string InpSymbol = "";                  // Blank = chart tradeSymbol; attach to XAUUSD M15
 input ENUM_VWAP_SIDE InpDirection = VWAP_BOTH;
 input int InpEMARegime = 200;
 input int InpEMAPullback = 50;
@@ -44,7 +44,7 @@ input double InpPartialCloseFraction = 0.5;
 input bool InpEnableTradingOnStart = false;   // Strategy Tester automation; use false on live charts
 
 CTrade trade;
-string symbol;
+string tradeSymbol;
 int h200=INVALID_HANDLE,h50=INVALID_HANDLE,h20=INVALID_HANDLE,hATR=INVALID_HANDLE;
 datetime lastBar=0,dayAnchor=0;
 double dayStartEquity=0;
@@ -89,7 +89,7 @@ bool SessionVWAP(datetime barServer,double &vwap)
    if(!SessionBounds(barServer,start,end)) return false;
    // Calculate from closed bars only, including the signal bar.
    MqlRates r[];
-   int count=CopyRates(symbol,PERIOD_M15,start,barServer+PERIOD_M15*60-1,r);
+   int count=CopyRates(tradeSymbol,PERIOD_M15,start,barServer+PERIOD_M15*60-1,r);
    if(count<1) return false;
    double pv=0,volume=0;
    for(int i=0;i<count;i++)
@@ -123,7 +123,7 @@ bool PositionExists()
    for(int i=PositionsTotal()-1;i>=0;i--)
    {
       ulong t=PositionGetTicket(i);
-      if(t>0 && PositionGetString(POSITION_SYMBOL)==symbol && PositionGetInteger(POSITION_MAGIC)==InpMagic) return true;
+      if(t>0 && PositionGetString(POSITION_SYMBOL)==tradeSymbol && PositionGetInteger(POSITION_MAGIC)==InpMagic) return true;
    }
    return false;
 }
@@ -154,7 +154,7 @@ void RefreshDay()
 void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &req,const MqlTradeResult &res)
 {
    if(trans.type!=TRADE_TRANSACTION_DEAL_ADD || !HistoryDealSelect(trans.deal)) return;
-   if(HistoryDealGetString(trans.deal,DEAL_SYMBOL)!=symbol ||
+   if(HistoryDealGetString(trans.deal,DEAL_SYMBOL)!=tradeSymbol ||
       HistoryDealGetInteger(trans.deal,DEAL_MAGIC)!=InpMagic) return;
    long entry=(long)HistoryDealGetInteger(trans.deal,DEAL_ENTRY);
    if(entry==DEAL_ENTRY_OUT || entry==DEAL_ENTRY_OUT_BY)
@@ -166,11 +166,11 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,const MqlTradeRequest &
 bool LotsForRisk(const bool buy,const double price,const double sl,double &lots)
 {
    double pnl;
-   if(!OrderCalcProfit(buy?ORDER_TYPE_BUY:ORDER_TYPE_SELL,symbol,1.0,price,sl,pnl) || pnl>=0) return false;
+   if(!OrderCalcProfit(buy?ORDER_TYPE_BUY:ORDER_TYPE_SELL,tradeSymbol,1.0,price,sl,pnl) || pnl>=0) return false;
    double budget=AccountInfoDouble(ACCOUNT_EQUITY)*InpRiskPct/100.0;
-   double step=SymbolInfoDouble(symbol,SYMBOL_VOLUME_STEP);
-   double minv=SymbolInfoDouble(symbol,SYMBOL_VOLUME_MIN);
-   double maxv=SymbolInfoDouble(symbol,SYMBOL_VOLUME_MAX);
+   double step=SymbolInfoDouble(tradeSymbol,SYMBOL_VOLUME_STEP);
+   double minv=SymbolInfoDouble(tradeSymbol,SYMBOL_VOLUME_MIN);
+   double maxv=SymbolInfoDouble(tradeSymbol,SYMBOL_VOLUME_MAX);
    if(step<=0 || budget<=0) return false;
    lots=NormalizeDouble(MathMin(maxv,MathFloor(budget/(-pnl)/step)*step),8);
    return lots>=minv;
@@ -189,7 +189,7 @@ void Enter(const MqlRates &sig,const MqlRates &prev)
    if(!SessionVWAP(sig.time,vwap)) return;
    MqlRates vols[];
    int need=InpVolumeMAPeriod+1;
-   if(CopyRates(symbol,PERIOD_M15,1,need,vols)!=need) return;
+   if(CopyRates(tradeSymbol,PERIOD_M15,1,need,vols)!=need) return;
    double sum=0;
    for(int i=0;i<need-1;i++) sum+=Vol(vols[i]); // excludes signal bar
    if(Vol(sig)<=InpVolumeFactor*sum/(need-1)) return;
@@ -204,22 +204,22 @@ void Enter(const MqlRates &sig,const MqlRates &prev)
    if(InpDirection==VWAP_SELL_ONLY) buy=false;
    if(!buy && !sell) return;
    MqlTick tick;
-   if(!SymbolInfoTick(symbol,tick) || tick.ask<=0 || tick.bid<=0) return;
-   double point=SymbolInfoDouble(symbol,SYMBOL_POINT);
+   if(!SymbolInfoTick(tradeSymbol,tick) || tick.ask<=0 || tick.bid<=0) return;
+   double point=SymbolInfoDouble(tradeSymbol,SYMBOL_POINT);
    if((tick.ask-tick.bid)/point>InpMaxSpreadPoints) return;
    double price=buy?tick.ask:tick.bid;
    double sl=buy?sig.low-InpSLBufferATR*atr:sig.high+InpSLBufferATR*atr;
    double risk=buy?price-sl:sl-price;
    if(risk<=0) return;
    double tp=buy?price+InpTargetR*risk:price-InpTargetR*risk;
-   int stops=(int)SymbolInfoInteger(symbol,SYMBOL_TRADE_STOPS_LEVEL);
+   int stops=(int)SymbolInfoInteger(tradeSymbol,SYMBOL_TRADE_STOPS_LEVEL);
    if(risk<stops*point || InpTargetR*risk<stops*point) return;
    double lots;
    if(!LotsForRisk(buy,price,sl,lots)) return;
-   int digits=(int)SymbolInfoInteger(symbol,SYMBOL_DIGITS);
+   int digits=(int)SymbolInfoInteger(tradeSymbol,SYMBOL_DIGITS);
    sl=NormalizeDouble(sl,digits);tp=NormalizeDouble(tp,digits);
-   bool ok=buy?trade.Buy(lots,symbol,0,sl,tp,"VWAP EMA pullback"):
-               trade.Sell(lots,symbol,0,sl,tp,"VWAP EMA pullback");
+   bool ok=buy?trade.Buy(lots,tradeSymbol,0,sl,tp,"VWAP EMA pullback"):
+               trade.Sell(lots,tradeSymbol,0,sl,tp,"VWAP EMA pullback");
    if(ok && (trade.ResultRetcode()==TRADE_RETCODE_DONE || trade.ResultRetcode()==TRADE_RETCODE_DONE_PARTIAL))
    {
       entryPrice=price;initialRisk=risk;reduced=false;
@@ -232,7 +232,7 @@ void ManagePosition(const MqlRates &closed)
    for(int i=PositionsTotal()-1;i>=0;i--)
    {
       ulong ticket=PositionGetTicket(i);
-      if(ticket==0 || PositionGetString(POSITION_SYMBOL)!=symbol || PositionGetInteger(POSITION_MAGIC)!=InpMagic) continue;
+      if(ticket==0 || PositionGetString(POSITION_SYMBOL)!=tradeSymbol || PositionGetInteger(POSITION_MAGIC)!=InpMagic) continue;
       bool buy=PositionGetInteger(POSITION_TYPE)==POSITION_TYPE_BUY;
       double price=PositionGetDouble(POSITION_PRICE_OPEN);
       double sl=PositionGetDouble(POSITION_SL);
@@ -258,9 +258,9 @@ void ManagePosition(const MqlRates &closed)
             closed.high-closed.low<=0.6*MathAbs(closed.close-price))
          {
             double vol=PositionGetDouble(POSITION_VOLUME);
-            double step=SymbolInfoDouble(symbol,SYMBOL_VOLUME_STEP);
+            double step=SymbolInfoDouble(tradeSymbol,SYMBOL_VOLUME_STEP);
             double part=MathFloor(vol*InpPartialCloseFraction/step)*step;
-            if(part>=SymbolInfoDouble(symbol,SYMBOL_VOLUME_MIN) && vol-part>=SymbolInfoDouble(symbol,SYMBOL_VOLUME_MIN))
+            if(part>=SymbolInfoDouble(tradeSymbol,SYMBOL_VOLUME_MIN) && vol-part>=SymbolInfoDouble(tradeSymbol,SYMBOL_VOLUME_MIN))
             {
                if(trade.PositionClosePartial(ticket,part)) reduced=true;
             }
@@ -279,16 +279,16 @@ int OnInit()
       InpSessionEndHourUTC<0 || InpSessionEndHourUTC>23 || InpSessionStartMinuteUTC<0 ||
       InpSessionStartMinuteUTC>59 || InpSessionEndMinuteUTC<0 || InpSessionEndMinuteUTC>59 ||
       InpPartialCloseFraction<=0 || InpPartialCloseFraction>=1 || InpMagic<=0) return INIT_PARAMETERS_INCORRECT;
-   symbol=InpSymbol==""?_Symbol:InpSymbol;
-   if(!SymbolSelect(symbol,true)) return INIT_FAILED;
-   h200=iMA(symbol,PERIOD_M15,InpEMARegime,0,MODE_EMA,PRICE_CLOSE);
-   h50=iMA(symbol,PERIOD_M15,InpEMAPullback,0,MODE_EMA,PRICE_CLOSE);
-   h20=iMA(symbol,PERIOD_M15,InpEMATight,0,MODE_EMA,PRICE_CLOSE);
-   hATR=iATR(symbol,PERIOD_M15,InpATRPeriod);
+   tradeSymbol=InpSymbol==""?_Symbol:InpSymbol;
+   if(!SymbolSelect(tradeSymbol,true)) return INIT_FAILED;
+   h200=iMA(tradeSymbol,PERIOD_M15,InpEMARegime,0,MODE_EMA,PRICE_CLOSE);
+   h50=iMA(tradeSymbol,PERIOD_M15,InpEMAPullback,0,MODE_EMA,PRICE_CLOSE);
+   h20=iMA(tradeSymbol,PERIOD_M15,InpEMATight,0,MODE_EMA,PRICE_CLOSE);
+   hATR=iATR(tradeSymbol,PERIOD_M15,InpATRPeriod);
    if(h200==INVALID_HANDLE || h50==INVALID_HANDLE || h20==INVALID_HANDLE || hATR==INVALID_HANDLE) return INIT_FAILED;
    trade.SetExpertMagicNumber((ulong)InpMagic);
    trade.SetDeviationInPoints(InpSlippagePoints);
-   trade.SetTypeFillingBySymbol(symbol);
+   trade.SetTypeFillingBySymbol(tradeSymbol);
    enabled=InpEnableTradingOnStart;
    buttonName="GoldVWAPToggle_"+IntegerToString((long)ChartID());
    ObjectCreate(0,buttonName,OBJ_BUTTON,0,0,0);
@@ -300,18 +300,18 @@ int OnInit()
    RefreshButton();
    dayAnchor=UTCMidnight(ToUTC(TimeCurrent()));
    dayStartEquity=AccountInfoDouble(ACCOUNT_EQUITY);
-   lastBar=iTime(symbol,PERIOD_M15,0);
+   lastBar=iTime(tradeSymbol,PERIOD_M15,0);
    Print("Gold VWAP EMA research EA ready. Confirm server UTC offset and test with real ticks.");
    return INIT_SUCCEEDED;
 }
 void OnTick()
 {
    RefreshDay();
-   datetime bar=iTime(symbol,PERIOD_M15,0);
+   datetime bar=iTime(tradeSymbol,PERIOD_M15,0);
    if(bar==0 || bar==lastBar) return;
    lastBar=bar;
    MqlRates r[];
-   if(CopyRates(symbol,PERIOD_M15,1,2,r)!=2) return;
+   if(CopyRates(tradeSymbol,PERIOD_M15,1,2,r)!=2) return;
    ManagePosition(r[1]);
    Enter(r[1],r[0]);
 }
