@@ -35,6 +35,8 @@ string sym;
 datetime lastBar = 0, lastDay = 0;
 double initialBalance = 0.0, dayStartEquity = 0.0;
 bool dayLocked = false, overallLocked = false;
+bool tradingEnabled = false; // Always OFF when EA starts/restarts.
+string toggleButton;
 
 // Historical Pine zigzag has exactly one point per alternating swing,
 // replacing its last point with a more extreme same-type fractal.
@@ -50,6 +52,38 @@ datetime pendingBar = 0;
 
 string Key(const string suffix) { return "ShinvestEA." + (string)AccountInfoInteger(ACCOUNT_LOGIN) + "." + (string)InpMagic + "." + suffix; }
 
+void RefreshTradingButton()
+{
+   if(ObjectFind(0,toggleButton)<0) return;
+   ObjectSetString(0,toggleButton,OBJPROP_TEXT,tradingEnabled ? "EA TRADING: ON" : "EA TRADING: OFF");
+   ObjectSetInteger(0,toggleButton,OBJPROP_BGCOLOR,tradingEnabled ? clrForestGreen : clrFireBrick);
+   ObjectSetInteger(0,toggleButton,OBJPROP_COLOR,clrWhite);
+   ObjectSetInteger(0,toggleButton,OBJPROP_STATE,false);
+   ChartRedraw(0);
+}
+bool CreateTradingButton()
+{
+   toggleButton="ShinvestToggle_"+IntegerToString((long)ChartID())+"_"+IntegerToString(InpMagic);
+   ObjectDelete(0,toggleButton);
+   if(!ObjectCreate(0,toggleButton,OBJ_BUTTON,0,0,0)) return false;
+   ObjectSetInteger(0,toggleButton,OBJPROP_CORNER,CORNER_LEFT_UPPER);
+   ObjectSetInteger(0,toggleButton,OBJPROP_XDISTANCE,16);
+   ObjectSetInteger(0,toggleButton,OBJPROP_YDISTANCE,30);
+   ObjectSetInteger(0,toggleButton,OBJPROP_XSIZE,155);
+   ObjectSetInteger(0,toggleButton,OBJPROP_YSIZE,32);
+   ObjectSetInteger(0,toggleButton,OBJPROP_FONTSIZE,10);
+   ObjectSetInteger(0,toggleButton,OBJPROP_SELECTABLE,false);
+   ObjectSetInteger(0,toggleButton,OBJPROP_HIDDEN,true);
+   RefreshTradingButton();
+   return true;
+}
+void OnChartEvent(const int id,const long &lparam,const double &dparam,const string &sparam)
+{
+   if(id!=CHARTEVENT_OBJECT_CLICK || sparam!=toggleButton) return;
+   tradingEnabled=!tradingEnabled;
+   RefreshTradingButton();
+   Print("Shinvest EA automated entries ",tradingEnabled ? "ENABLED" : "DISABLED");
+}
 void SaveGuardState()
 {
    GlobalVariableSet(Key("initial_balance"), initialBalance);
@@ -231,7 +265,7 @@ void TryEntry()
    const double sl=pendingSL,tp=pendingTP;
    // Signal is single-use regardless of eligibility.
    pendingDir=0; pendingSL=0; pendingTP=0; pendingBar=0;
-   if(!ValidDirection(dir) || dayLocked || overallLocked || ActivePositions()>=InpMaxPositions) return;
+   if(!tradingEnabled || !ValidDirection(dir) || dayLocked || overallLocked || ActivePositions()>=InpMaxPositions) return;
    MqlTick tick;
    if(!SymbolInfoTick(sym,tick) || tick.ask<=0 || tick.bid<=0) return;
    const double point=SymbolInfoDouble(sym,SYMBOL_POINT);
@@ -263,6 +297,8 @@ int OnInit()
    trade.SetExpertMagicNumber((ulong)InpMagic);
    trade.SetDeviationInPoints(InpDeviationPoints);
    trade.SetTypeFillingBySymbol(sym);
+   tradingEnabled=false;
+   if(!CreateTradingButton()) { Print("Cannot create trading toggle button"); return INIT_FAILED; }
    InitGuardState();
    ClearStructure();
    // Bootstrap confirmed fractals chronologically using closed bars only.
@@ -289,4 +325,4 @@ void OnTick()
    ProcessTriple(bars[0],bars[1],bars[2]);
    TryEntry();
 }
-void OnDeinit(const int reason) { SaveGuardState(); }
+void OnDeinit(const int reason) { SaveGuardState(); ObjectDelete(0,toggleButton); }
