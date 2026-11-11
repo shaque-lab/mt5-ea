@@ -11,11 +11,23 @@ enum ENUM_TRADE_SIDE { TRADE_BOTH=0, TRADE_LONG_ONLY=1, TRADE_SHORT_ONLY=2 };
 input group "Strategy"
 input string InpSymbol = "XAUUSD";          // Blank = chart symbol (supports broker suffixes)
 input ENUM_TIMEFRAMES InpTimeframe = PERIOD_M1;
-input ENUM_TRADE_SIDE InpDirection = TRADE_BOTH;
+input ENUM_TRADE_SIDE InpDirection = TRADE_LONG_ONLY;
 input double InpMinimumRR = 5.0;
 input double InpMinimumSLPips = 19.0;
 input double InpPipSize = 0.01;
 input int InpHistoryBars = 3000;           // Replay once at startup
+input group "Entry time filters (broker server time)"
+input bool InpUseHourFilter = true;           // Inclusive hours, entry bar time
+input int InpStartHour = 9;                  // 09:00
+input int InpEndHour = 16;                   // Through 16:59
+input bool InpUseWeekdayFilter = true;
+input bool InpTradeMonday = false;
+input bool InpTradeTuesday = false;
+input bool InpTradeWednesday = true;
+input bool InpTradeThursday = true;
+input bool InpTradeFriday = true;
+input bool InpTradeSaturday = false;
+input bool InpTradeSunday = false;
 input group "Execution"
 input double InpRiskPercent = 0.1;
 input int InpMaxPositions = 1;
@@ -236,6 +248,32 @@ bool ValidDirection(const int dir)
 {
    return (InpDirection==TRADE_BOTH || (InpDirection==TRADE_LONG_ONLY && dir==1) || (InpDirection==TRADE_SHORT_ONLY && dir==-1));
 }
+bool AllowedEntryTime(const datetime entryBarTime)
+{
+   if(!InpUseHourFilter && !InpUseWeekdayFilter) return true;
+   MqlDateTime dt;
+   TimeToStruct(entryBarTime,dt);
+   if(InpUseHourFilter)
+   {
+      if(InpStartHour<=InpEndHour)
+      {
+         if(dt.hour<InpStartHour || dt.hour>InpEndHour) return false;
+      }
+      else if(dt.hour<InpStartHour && dt.hour>InpEndHour) return false; // Overnight window
+   }
+   if(!InpUseWeekdayFilter) return true;
+   switch(dt.day_of_week)
+   {
+      case 0: return InpTradeSunday;
+      case 1: return InpTradeMonday;
+      case 2: return InpTradeTuesday;
+      case 3: return InpTradeWednesday;
+      case 4: return InpTradeThursday;
+      case 5: return InpTradeFriday;
+      case 6: return InpTradeSaturday;
+   }
+   return false;
+}
 bool CalculateLots(const int dir,const double entry,const double sl,double &lots)
 {
    const double budget=AccountInfoDouble(ACCOUNT_EQUITY)*InpRiskPercent/100.0;
@@ -265,7 +303,7 @@ void TryEntry()
    const double sl=pendingSL,tp=pendingTP;
    // Signal is single-use regardless of eligibility.
    pendingDir=0; pendingSL=0; pendingTP=0; pendingBar=0;
-   if(!tradingEnabled || !ValidDirection(dir) || dayLocked || overallLocked || ActivePositions()>=InpMaxPositions) return;
+   if(!tradingEnabled || !ValidDirection(dir) || !AllowedEntryTime(lastBar) || dayLocked || overallLocked || ActivePositions()>=InpMaxPositions) return;
    MqlTick tick;
    if(!SymbolInfoTick(sym,tick) || tick.ask<=0 || tick.bid<=0) return;
    const double point=SymbolInfoDouble(sym,SYMBOL_POINT);
@@ -290,7 +328,7 @@ void TryEntry()
 }
 int OnInit()
 {
-   if(InpRiskPercent<=0 || InpRiskPercent>100 || InpMinimumRR<=0 || InpMinimumSLPips<0 || InpPipSize<=0 || InpMaxPositions<1 || InpMaxSpreadPoints<0 || InpDailyLossPercent<=0 || InpOverallDrawdownPercent<=0 || InpHistoryBars<20 || InpMagic<=0)
+   if(InpRiskPercent<=0 || InpRiskPercent>100 || InpMinimumRR<=0 || InpMinimumSLPips<0 || InpPipSize<=0 || InpMaxPositions<1 || InpMaxSpreadPoints<0 || InpDailyLossPercent<=0 || InpOverallDrawdownPercent<=0 || InpHistoryBars<20 || InpMagic<=0 || InpStartHour<0 || InpStartHour>23 || InpEndHour<0 || InpEndHour>23)
       return INIT_PARAMETERS_INCORRECT;
    sym=InpSymbol=="" ? _Symbol : InpSymbol;
    if(!SymbolSelect(sym,true)) { Print("Symbol unavailable: ",sym); return INIT_FAILED; }
