@@ -55,3 +55,9 @@ The default maximum open-position check covers **all positions on the traded sym
 
 ## Reference implementation
 [TradingView Pine strategy](https://github.com/shaque-lab/pricebias-model-v2/blob/fix/structural-context-semantics-agent2/scripts/tradingview/shinvest_secondary_trades_backtest.pine)
+
+## Entry time and weekday filters
+
+The EA includes configurable entry filters in **broker-server time**, evaluated using the **new entry bar's timestamp** (not the pivot/confirmation candle). Default test candidate: `InpDirection=TRADE_LONG_ONLY`, `InpUseHourFilter=true`, `InpStartHour=9`, `InpEndHour=16` (inclusive, 09:00–16:59), `InpUseWeekdayFilter=true`, Monday/Tuesday/Saturday/Sunday disabled, Wednesday/Thursday/Friday enabled. This corresponds to the historical BUY-only Wednesday–Friday 09:00–16:59 subset, but requires an independent MT5 backtest; past subset metrics do not guarantee identical executed trades.
+
+Set `InpUseHourFilter=false` to allow all hours, or `InpUseWeekdayFilter=false` to allow all weekdays. Any weekday may be individually enabled. Hour ranges crossing midnight (e.g. 22 through 2) are supported. `InpDirection=TRADE_BOTH` restores both sides. These filters affect **new entries only**; they do not close open positions. The chart EA trading toggle still starts OFF on every initialization; turn it ON in visual testing. Confirm the broker's server timezone before comparing hours with exported reports.
