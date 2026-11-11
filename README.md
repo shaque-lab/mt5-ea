@@ -4,6 +4,10 @@ MQL5 implementation of the secondary zigzag HH→HL (BUY) / LL→LH (SELL) Tradi
 
 **Status: source-only initial port. Not compiled or validated in MetaEditor/MT5 yet. Do not run on a live/prop account until compilation, Strategy Tester and demo parity checks pass.**
 
+## Manual chart trading switch
+
+A prominent **EA TRADING: OFF / ON** button appears at the top-left of the chart. It always starts **OFF**, including after restarting or reattaching the EA. Click to toggle automatic new entries ON or OFF. When OFF, the EA continues tracking confirmed fractals and checking loss guards, but will **not** open new trades; missed signals are not queued for later. Existing positions keep their broker-side SL/TP and are not closed by this button. The daily/overall loss-guard close behavior, if enabled separately, remains active even while trading is OFF. This switch controls **this EA's automatic entries only**, not MT5's manual trading controls or other EAs. MT5's global Algo Trading permission must also be enabled for ON to place orders.
+
 ## Entry rules
 - Operate on closed M1 candles (default). Confirm a three-candle high/low pivot using strict comparisons.
 - Maintain alternating high/low zigzag; same-type more-extreme pivots replace the current endpoint.
