@@ -147,11 +147,13 @@ void AddPoint(const double price,const datetime at,const int kind,const double c
       if(completedKind==1)
       {
          prevHigh=lastHigh; lastHigh=completedPrice;
-         // Previous completed high must exist before the new completion.
-         // For a new low endpoint the previous high is now zz[n-1]; Pine
-         // compares that high to the prior completed high, not this one.
+         hasPrevHigh=true;
       }
-      else { prevLow=lastLow; lastLow=completedPrice; }
+      else
+      {
+         prevLow=lastLow; lastLow=completedPrice;
+         hasPrevLow=true;
+      }
    }
    if(n<2) return;
    // n is the index of the newly appended endpoint.
@@ -160,7 +162,7 @@ void AddPoint(const double price,const datetime at,const int kind,const double c
       const double low=zzPrice[n], high=zzPrice[n-1], oldLow=zzPrice[n-2];
       const bool isHL=low>oldLow;
       // Pine previousCompletedHigh contains the completed high BEFORE the just-completed HH.
-      const bool isHH=hasPrevHigh && high>prevHigh;
+      const bool isHH=hasPrevHigh && prevHigh>0 && high>prevHigh;
       if(isHL && isHH && zzTime[n-1]!=zzTime[n] && confirmHigh<high)
       {
          pendingDir=1; pendingSL=low; pendingTP=high; pendingBar=at;
@@ -170,14 +172,12 @@ void AddPoint(const double price,const datetime at,const int kind,const double c
    {
       const double high=zzPrice[n], low=zzPrice[n-1], oldHigh=zzPrice[n-2];
       const bool isLH=high<oldHigh;
-      const bool isLL=hasPrevLow && low<prevLow;
+      const bool isLL=hasPrevLow && prevLow>0 && low<prevLow;
       if(isLH && isLL && zzTime[n-1]!=zzTime[n] && confirmLow>low)
       {
          pendingDir=-1; pendingSL=high; pendingTP=low; pendingBar=at;
       }
    }
-   if(n>=1 && zzType[n-1]==1) hasPrevHigh=true;
-   if(n>=1 && zzType[n-1]==-1) hasPrevLow=true;
 }
 // bar 0 = current confirmation candle (closed), bar 1 = potential pivot,
 // bar 2 = earlier candle. Call in chronological order.
